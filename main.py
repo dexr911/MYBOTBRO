@@ -1,73 +1,66 @@
 import telebot
-import requests
-import re
+import cloudscraper
 import uuid
-import hashlib
-import json
-from user_agent import generate_user_agent
-import concurrent.futures
+import re
+import time
 
 API_TOKEN = '8488920682:AAGhoJ-R5q5Xd4nVULrdmSxM2YfSch6j2RU'
 bot = telebot.TeleBot(API_TOKEN)
 
-def generate_signed_body(email):
-    # توليد UUID و Device ID عشوائي لكل طلب لتخطي الحماية
-    device_id = f"android-{uuid.uuid4().hex[:16]}"
+def check_email_fixed(email):
+    # إنشاء متصفح يحاكي الواقع لتخطى الـ IP Block
+    scraper = cloudscraper.create_scraper()
+    
+    # توليد بيانات جهاز عشوائية تماماً
+    device_id = str(uuid.uuid4())
     guid = str(uuid.uuid4())
+    
+    url = "https://i.instagram.com/api/v1/accounts/send_password_reset/"
+    
+    headers = {
+        "User-Agent": "Instagram 269.1.0.18.231 Android (29/10; 480dpi; 1080x2280; samsung; SM-G973F; beyond1; exynos9820; en_US; 441001473)",
+        "X-IG-App-ID": "936619743392459",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    
+    # البيانات بصيغة تطبيق الأندرويد لعام 2024
     data = {
         "user_email": email,
-        "device_id": device_id,
+        "device_id": f"android-{device_id[:16]}",
         "guid": guid,
         "_csrftoken": "missing"
     }
-    json_data = json.dumps(data)
-    # التوقيع الجديد (HMAC-SHA256 محاكى)
-    signed_body = f"9d18e1d526e03883a826471e9a2636412e8c9c612666270438f6b8c8d8c8d8c8.{json_data}"
-    return signed_body
-
-def check_email(email):
+    
     try:
-        url = "https://i.instagram.com/api/v1/accounts/send_password_reset/"
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'User-Agent': generate_user_agent(),
-            'X-IG-Connection-Type': 'WIFI',
-            'X-IG-Capabilities': 'AQ==',
-            'Accept-Language': 'en-US',
-            'Host': 'i.instagram.com'
-        }
+        # إرسال الطلب
+        response = scraper.post(url, data=data, headers=headers, timeout=15)
+        res_text = response.text
         
-        payload = {
-            'ig_sig_key_version': '4',
-            'signed_body': generate_signed_body(email)
-        }
-
-        response = requests.post(url, data=payload, headers=headers, timeout=10)
-        
-        # إذا كانت النتيجة تحتوي على obfuscated_email أو تم إرسال الإيميل فعلاً
-        if 'obfuscated_email' in response.text or '"status":"ok"' in response.text:
+        # إنستغرام يرسل 'status':'ok' إذا كان الإيميل موجود فعلاً
+        if '"status":"ok"' in res_text or 'obfuscated_email' in res_text:
             return True
         return False
-    except:
+    except Exception as e:
+        print(f"Error: {e}")
         return False
 
 @bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "🔥 أهلاً Dexr! أرسل الإيميلات الآن وسأفحصها لك بالتقنية الجديدة.")
+def start(message):
+    bot.reply_to(message, "✅ تم تحديث المحرك لتجاوز حماية إنستغرام الجديدة.\nأرسل الإيميل الآن للفحص.")
 
 @bot.message_handler(func=lambda m: True)
-def handle_message(message):
+def handle_all(message):
     emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', message.text)
     if not emails:
-        bot.reply_to(message, "❌ ارسل ايميلات صالحة.")
+        bot.reply_to(message, "⚠️ ارسل إيميل صالح.")
         return
 
-    bot.send_message(message.chat.id, f"🔎 جاري فحص {len(emails)} إيميل...")
-    
     for email in emails:
-        if check_email(email):
-            bot.send_message(message.chat.id, f"✅ مربوط حتماً: {email}")
+        status = check_email_fixed(email)
+        if status:
+            bot.send_message(message.chat.id, f"✅ مربوط: {email}")
         else:
-            bot.send_message(message.chat.id, f"❌ غير مربوط: {email}")
+            bot.send_message(message.chat.id, f"❌ غير مربوط أو محظور: {email}")
 
 bot.polling()
